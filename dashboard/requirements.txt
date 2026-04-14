@@ -1,0 +1,5 @@
+streamlit==1.28.0
+kafka-python==2.0.2
+pandas==2.1.2
+plotly==5.18.0
+python-dotenv==1.0.0

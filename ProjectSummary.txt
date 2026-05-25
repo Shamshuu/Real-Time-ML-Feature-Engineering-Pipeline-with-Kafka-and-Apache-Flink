@@ -1,0 +1,53 @@
+Project Purpose
+The purpose of this project is to build the backend infrastructure for a Real-Time Machine Learning Feature Store. In modern ML applications (like Netflix recommendations or Uber dynamic pricing), predicting user behavior accurately requires extremely fresh data. Batch processing (analyzing yesterday's data) is too slow.
+
+This pipeline ingests a continuous stream of user interactions as they happen, calculates meaningful "features" (metrics like click rates or engagement velocity) on the fly, and saves those calculations so that an ML model can query them instantly to make real-time predictions.
+
+
+How Functionality is Implemented
+
+1. Data Ingestion & Simulation (The Producer)
+
+What it does: Simulates thousands of users clicking, viewing, and liking content across a platform.
+Implementation: A Python script runs continuously, generating JSON events. To make testing easier, it uses an "accelerated time" factor (1 real second = 1 simulated minute). Crucially, it deliberately injects late events (events with old timestamps) to test the pipeline's ability to handle network delays.
+
+
+2. Stateful Feature Computation (The Flink Job)
+
+What it does: Acts as the "brain" of the pipeline, calculating the actual metrics ML models care about.
+Implementation:
+User Features (Tumbling Windows): Groups events into fixed 1-hour blocks. For example, it counts how many clicks a user made between 1:00 PM and 2:00 PM to calculate a click_rate.
+Content Features (Sliding Windows): Calculates a rolling engagement_rate for videos over the last 15 minutes, updating every 5 minutes to detect sudden viral trends.
+Data Enrichment (Stream-Table Join): Takes a raw click on content_123, looks up a separate metadata table to discover that content_123 is a "sci-fi" video, and increments the user's category_affinity score for sci-fi.
+
+
+3. Handling Out-of-Order Data (Watermarking)
+
+What it does: Solves the problem of data arriving late due to network lag.
+Implementation: Flink is configured with a 30-second bounded out-of-orderness watermark. This means Flink keeps a window open for 30 simulated seconds after it normally would have closed, waiting for straggler events to arrive. If an event is more than 30 seconds late, Flink drops it to ensure the pipeline keeps moving forward without getting bogged down waiting forever.
+
+
+4. Real-Time Observability (The Dashboard)
+
+What it does: Proves the pipeline is working.
+Implementation: A Streamlit web app acts as a live consumer. It connects directly to the final Kafka topic, displaying the freshly computed ML features for any searched user or video, alongside operational metrics like "late events dropped."
+
+
+Technology Stack & Justification
+
+Apache Kafka (Event Bus & Feature Store)
+
+Role: The circulatory system of the project. It moves data between the producer, the processor, and the dashboard.
+Why it helps: Kafka is incredibly fast and fault-tolerant. We specifically use a Kafka feature called Topic Compaction for our Feature Store. Instead of keeping a massive history of every time a user's click rate changed, compaction ensures Kafka only retains the absolute latest value for a specific key (e.g., user_1:click_rate), effectively turning a message queue into a lightning-fast Key-Value database perfect for ML serving.
+
+
+Apache Flink / PyFlink (Stream Processor)
+
+Role: The computation engine.
+Why it helps: While other tools (like Spark) process data in "micro-batches," Flink processes events one by one in true real-time. It has industry-leading support for Event-Time processing, meaning it calculates windows based on when the user actually clicked the button (the timestamp inside the JSON), rather than when the server received the data. Its built-in state management (RocksDB) handles the massive memory requirements of keeping track of thousands of open time windows simultaneously.
+
+
+Docker Compose (Orchestration)
+
+Role: Packages the entire complex distributed system into a single, runnable environment.
+Why it helps: Running Zookeeper, Kafka, Flink JobManagers, TaskManagers, and custom Python apps manually would be an administrative nightmare. Docker Compose allows the entire architecture to be spun up with guaranteed consistency using a single docker compose up command.
